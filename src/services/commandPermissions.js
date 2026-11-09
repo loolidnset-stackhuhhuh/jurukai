@@ -1,54 +1,7 @@
-
-import { permissionConfig } from '../config/permissions.js';
-import { getDatabase } from '../database/connection.js';
-
-export function getPermissionGroup(commandName) {
-    for (const [group, commands] of Object.entries(
-        permissionConfig.permissionGroups
-    )) {
-        if (commands.includes(commandName.toLowerCase())) {
-            return group;
-        }
-    }
-
-    return null;
-}
-
-export async function getCommandRoles(guildId, commandName) {
-    const db = getDatabase();
-
-    const result = await db.query(
-        `SELECT role_id
-         FROM command_role_permissions
-         WHERE guild_id = $1 AND command_name = $2`,
-        [guildId, commandName.toLowerCase()]
-    );
-
-    return result.rows.map(row => row.role_id);
-}
-
-export async function setCommandRoles(guildId, commandName, roleIds) {
-    const db = getDatabase();
-    const normalizedName = commandName.toLowerCase();
-
-    await db.query(
-        `DELETE FROM command_role_permissions
-         WHERE guild_id = $1 AND command_name = $2`,
-        [guildId, normalizedName]
-    );
-
-    for (const roleId of roleIds) {
-        await db.query(
-            `INSERT INTO command_role_permissions
-             (guild_id, command_name, role_id)
-             VALUES ($1, $2, $3)
-             ON CONFLICT DO NOTHING`,
-            [guildId, normalizedName, roleId]
-        );
-    }
-}
-
 export async function checkCommandPermission(message, command) {
+    const warning = '<:warning:1562130172004540439>';
+    const user = message.author.toString();
+
     if (message.author.id === message.guild.ownerId) {
         return { allowed: true };
     }
@@ -71,14 +24,14 @@ export async function checkCommandPermission(message, command) {
 
         return {
             allowed: false,
-            reason: 'Jurumi cannot access its permission database right now.'
+            message: `${warning} ${user}: You're **missing** the permission: \`database_access\``
         };
     }
 
     if (!roleIds.length) {
         return {
             allowed: false,
-            reason: `No staff role has been assigned to ,${command.name} yet. Ask the server owner to configure it.`
+            message: `${warning} ${user}: You're **missing** the permission: \`${command.name}_role\``
         };
     }
 
@@ -89,7 +42,7 @@ export async function checkCommandPermission(message, command) {
     if (!hasRole) {
         return {
             allowed: false,
-            reason: 'You do not have a role authorized to use this command.'
+            message: `${warning} ${user}: You're **missing** the permission: \`${command.name}_role\``
         };
     }
 
