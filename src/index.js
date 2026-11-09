@@ -7,10 +7,13 @@ import {
     Events
 } from 'discord.js';
 
+import { loadCommands } from './handlers/commandHandler.js';
+import { loadEvents } from './handlers/eventHandler.js';
+
 const token = process.env.DISCORD_TOKEN;
 
 if (!token) {
-    console.error('[JURUMI] Missing DISCORD_TOKEN environment variable.');
+    console.error('[JURUMI] DISCORD_TOKEN is missing.');
     process.exit(1);
 }
 
@@ -26,29 +29,34 @@ const client = new Client({
     ]
 });
 
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, readyClient => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('♡ JURUMI IS ONLINE ♡');
-    console.log(`Logged in as: ${readyClient.user.tag}`);
-    console.log(`Bot ID: ${readyClient.user.id}`);
+    console.log('JURUMI IS ONLINE');
+    console.log(`Account: ${readyClient.user.tag}`);
     console.log(`Servers: ${readyClient.guilds.cache.size}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 
-client.on(Events.Error, (error) => {
-    console.error('[JURUMI] Discord client error:', error);
+client.on(Events.Error, error => {
+    console.error('[JURUMI] Discord error:', error);
 });
 
-process.on('unhandledRejection', (error) => {
+process.on('unhandledRejection', error => {
     console.error('[JURUMI] Unhandled rejection:', error);
 });
 
-process.on('uncaughtException', (error) => {
-    console.error('[JURUMI] Uncaught exception:', error);
-    process.exit(1);
-});
+async function startBot() {
+    try {
+        console.log('[JURUMI] Starting...');
 
-client.login(token).catch((error) => {
-    console.error('[JURUMI] Failed to log in:', error);
-    process.exit(1);
-});
+        await loadCommands(client);
+        await loadEvents(client);
+
+        await client.login(token);
+    } catch (error) {
+        console.error('[JURUMI] Startup failed:', error);
+        process.exit(1);
+    }
+}
+
+startBot();
