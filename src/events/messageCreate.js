@@ -2,6 +2,7 @@
 import { Events } from 'discord.js';
 import { botConfig } from '../config/bot.js';
 import { getCommand } from '../handlers/commandHandler.js';
+import { checkCommandPermission } from '../services/commandPermissions.js';
 
 const cooldowns = new Map();
 
@@ -26,14 +27,25 @@ export default {
 
         const command = getCommand(client, commandName);
 
-        if (!command) return;
+        if (!command || command.enabled === false) return;
 
-        if (command.enabled === false) return;
+        const permission = await checkCommandPermission(
+            message,
+            command
+        );
+
+        if (!permission.allowed) {
+            return message.reply({
+                content: permission.reason,
+                allowedMentions: { repliedUser: false }
+            });
+        }
 
         const cooldownTime =
             (command.cooldown ?? botConfig.commands.defaultCooldown) * 1000;
 
-        const cooldownKey = `${message.guild.id}:${message.author.id}:${command.name}`;
+        const cooldownKey =
+            `${message.guild.id}:${message.author.id}:${command.name}`;
 
         const now = Date.now();
         const expiration = cooldowns.get(cooldownKey);
@@ -49,9 +61,11 @@ export default {
 
         cooldowns.set(cooldownKey, now + cooldownTime);
 
-        setTimeout(() => {
+        const timer = setTimeout(() => {
             cooldowns.delete(cooldownKey);
-        }, cooldownTime).unref?.();
+        }, cooldownTime);
+
+        timer.unref?.();
 
         try {
             await command.execute(client, message, args);
