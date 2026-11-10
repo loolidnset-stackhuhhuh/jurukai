@@ -1,21 +1,37 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Collection } from 'discord.js';
+import {
+    fileURLToPath,
+    pathToFileURL
+} from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+export function getCommand(client, name) {
+    return client.commands?.get(name.toLowerCase()) || null;
+}
+
 export async function loadCommands(client) {
     const commandsPath = path.resolve(__dirname, '../commands');
 
+    if (!client.commands) {
+        client.commands = new Collection();
+    } else {
+        client.commands.clear();
+    }
+
     if (!fs.existsSync(commandsPath)) {
-        console.log('[JURUKAI] No commands folder found yet. Skipping command loading.');
+        console.log('[ALTARE] No commands folder found.');
         return;
     }
 
     async function loadDirectory(directory) {
-        const entries = fs.readdirSync(directory, { withFileTypes: true });
+        const entries = fs.readdirSync(directory, {
+            withFileTypes: true
+        });
 
         for (const entry of entries) {
             const fullPath = path.join(directory, entry.name);
@@ -31,29 +47,50 @@ export async function loadCommands(client) {
 
             try {
                 const fileUrl = pathToFileURL(fullPath).href;
-                const command = await import(fileUrl);
+                const imported = await import(fileUrl);
 
-                if (!command.name || typeof command.execute !== 'function') {
-                    console.warn(`[JURUKAI] Skipping invalid command: ${entry.name}`);
+                const command = imported.default ?? imported;
+
+                if (
+                    !command.name ||
+                    typeof command.execute !== 'function'
+                ) {
+                    console.warn(
+                        `[ALTARE] Skipping invalid command: ${entry.name}`
+                    );
                     continue;
                 }
 
-                client.commands.set(command.name.toLowerCase(), command);
+                client.commands.set(
+                    command.name.toLowerCase(),
+                    command
+                );
 
                 if (Array.isArray(command.aliases)) {
                     for (const alias of command.aliases) {
-                        client.commands.set(alias.toLowerCase(), command);
+                        client.commands.set(
+                            alias.toLowerCase(),
+                            command
+                        );
                     }
                 }
 
-                console.log(`[JURUKAI] Loaded command: ${command.name}`);
+                console.log(
+                    `[ALTARE] Loaded command: ${command.name}`
+                );
+
             } catch (error) {
-                console.error(`[JURUKAI] Failed to load ${entry.name}:`, error);
+                console.error(
+                    `[ALTARE] Failed to load ${entry.name}:`,
+                    error
+                );
             }
         }
     }
 
     await loadDirectory(commandsPath);
 
-    console.log(`[JURUKAI] Commands loaded: ${client.commands.size}`);
+    console.log(
+        `[ALTARE] Commands loaded: ${client.commands.size}`
+    );
 }
