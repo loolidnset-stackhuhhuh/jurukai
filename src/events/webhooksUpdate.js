@@ -2,6 +2,21 @@
 import { Events, AuditLogEvent } from 'discord.js';
 import { checkAntiNuke } from '../services/antinukeService.js';
 
+const WEBHOOK_ACTIONS = [
+    {
+        type: AuditLogEvent.WebhookCreate,
+        name: 'Webhook Creation'
+    },
+    {
+        type: AuditLogEvent.WebhookDelete,
+        name: 'Webhook Deletion'
+    },
+    {
+        type: AuditLogEvent.WebhookUpdate,
+        name: 'Webhook Modification'
+    }
+];
+
 export default {
     name: Events.WebhooksUpdate,
 
@@ -11,24 +26,58 @@ export default {
         const guild = channel.guild;
 
         try {
-            const auditLogs = await guild.fetchAuditLogs({
-                type: AuditLogEvent.WebhookCreate,
-                limit: 5,
-            });
+            const results = await Promise.all(
+                WEBHOOK_ACTIONS.map(async action => {
+                    try {
+                        const logs = await guild.fetchAuditLogs({
+                            type: action.type,
+                            limit: 5
+                        });
 
-            const entry = auditLogs.entries.find(entry =>
-                Date.now() - entry.createdTimestamp < 15000 &&
-                entry.extra?.channel?.id === channel.id
+                        return logs.entries
+                            .filter(entry =>
+                                entry.extra?.channel?.id === channel.id &&
+                                Date.now() - entry.createdTimestamp < 15000 &&
+                                entry.executor
+                            )
+                            .map(entry => ({
+                                entry,
+                                action
+                            }));
+
+                    } catch (error) {
+                        console.error(
+                            `[ALTARE ANTINUKE] Failed to fetch ${action.name} audit logs:`,
+                            error
+                        );
+
+                        return [];
+                    }
+                })
             );
 
-            if (!entry?.executor) return;
+            const matches = results
+                .flat()
+                .sort((a, b) =>
+                    b.entry.createdTimestamp -
+                    a.entry.createdTimestamp
+                );
+
+            // Only process the newest matching audit entry.
+            const detected = matches[0];
+
+            if (!detected) return;
 
             await checkAntiNuke({
                 guild,
-                executor: entry.executor,
+                executor: detected.entry.executor,
                 action: 'webhook',
-                auditAction: AuditLogEvent.WebhookCreate,
+                auditAction: detected.action.type
             });
+
+            console.log(
+                `[ALTARE ANTINUKE] ${detected.action.name} detected in ${guild.name}.`
+            );
 
         } catch (error) {
             console.error(
@@ -36,5 +85,5 @@ export default {
                 error
             );
         }
-    },
+    }
 };
