@@ -97,14 +97,10 @@ async function buildDashboard(client, guild, page) {
             : 'Not configured';
 
         description = [
-            'Manage and monitor your server protection against malicious activity.',
+            'Browse every antinuke command and configuration surface.',
             '',
-            `**Server:** ${guild.name}`,
-            `**Status:** ${settings.enabled ? 'ENABLED' : 'DISABLED'}`,
-            `**Punishment:** ${String(settings.punishment || 'strip').toUpperCase()}`,
-            `**Log Channel:** ${logChannel ? `#${channelName}` : 'Not configured'}`,
-            `**Protections Enabled:** ${enabled} / ${Object.keys(ACTIONS).length}`,
-            `**Whitelisted Users:** ${whitelist.length}`
+            `**Syntax:** ,antinuke`,
+            `**Status:** ,antinuke`,
         ].join('\n');
     }
 
