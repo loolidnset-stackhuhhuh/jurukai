@@ -10,10 +10,13 @@ import {
 import { loadCommands } from './handlers/commandHandler.js';
 import { loadEvents } from './handlers/eventHandler.js';
 
+import { initializeDatabase } from './database/connection.js';
+import { initializeAntiNukeDatabase } from './database/antinuke.js';
+
 const token = process.env.DISCORD_TOKEN;
 
 if (!token) {
-    console.error('[JURUMI] DISCORD_TOKEN is missing.');
+    console.error('[ALTARE] DISCORD_TOKEN is missing.');
     process.exit(1);
 }
 
@@ -31,30 +34,33 @@ const client = new Client({
 
 client.once(Events.ClientReady, readyClient => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('JURUMI IS ONLINE');
+    console.log('ALTARE IS ONLINE');
     console.log(`Account: ${readyClient.user.tag}`);
     console.log(`Servers: ${readyClient.guilds.cache.size}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 
 client.on(Events.Error, error => {
-    console.error('[JURUMI] Discord error:', error);
+    console.error('[ALTARE] Discord error:', error);
 });
 
 process.on('unhandledRejection', error => {
-    console.error('[JURUMI] Unhandled rejection:', error);
+    console.error('[ALTARE] Unhandled rejection:', error);
 });
 
 async function startBot() {
     try {
-        console.log('[JURUMI] Starting...');
+        console.log('[ALTARE] Starting...');
+
+        await initializeDatabase();
+        await initializeAntiNukeDatabase();
 
         await loadCommands(client);
         await loadEvents(client);
 
         await client.login(token);
     } catch (error) {
-        console.error('[JURUMI] Startup failed:', error);
+        console.error('[ALTARE] Startup failed:', error);
         process.exit(1);
     }
 }
