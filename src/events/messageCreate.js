@@ -9,7 +9,7 @@ const cooldowns = new Map();
 export default {
     name: Events.MessageCreate,
 
-    async execute(client, message) {
+    async execute(message, client) {
         if (!message.guild || message.author.bot) return;
 
         const prefix = botConfig.commands.prefix;
@@ -71,7 +71,7 @@ export default {
             await command.execute(client, message, args);
         } catch (error) {
             console.error(
-                `[JURUMI] Command error (${command.name}):`,
+                `[ALTARE] Command error (${command.name}):`,
                 error
             );
 
