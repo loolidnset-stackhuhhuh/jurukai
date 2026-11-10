@@ -3,11 +3,8 @@ import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
-    ContainerBuilder,
     EmbedBuilder,
-    MessageFlags,
-    PermissionFlagsBits,
-    TextDisplayBuilder
+    PermissionFlagsBits
 } from 'discord.js';
 
 import {
@@ -17,9 +14,7 @@ import {
     removeAntiNukeWhitelist
 } from '../../services/antinukeService.js';
 
-import {
-    getAntiNukeWhitelist
-} from '../../database/antinuke.js';
+import { getAntiNukeWhitelist } from '../../database/antinuke.js';
 
 const COLOR = 0x3a4f53;
 
@@ -57,14 +52,12 @@ function makeNotice(client, title, description) {
     return new EmbedBuilder()
         .setColor(COLOR)
         .setAuthor({
-            name: 'Jurukai Help',
+            name: 'Jurukai Security',
             iconURL: client.user.displayAvatarURL()
         })
         .setTitle(title)
         .setDescription(description)
-        .setFooter({
-            text: 'Jurukai Help'
-        });
+        .setFooter({ text: 'Jurukai | Anti-Nuke' });
 }
 
 function makeNavigation(activePage, disabled = false) {
@@ -86,21 +79,13 @@ function makeNavigation(activePage, disabled = false) {
     ];
 }
 
-function codeBlock(lines) {
-    return `\`\`\`text
-${lines.join('\n')}
-\`\`\``;
-}
-
-async function buildDashboard(client, guild, page, disabled = false) {
+async function buildDashboard(client, guild, page) {
     const settings = await getAntiNukeSettings(guild.id);
     const whitelist = await getAntiNukeWhitelist(guild.id);
     const logChannel = getLogChannel(settings);
 
-    let heading = 'Anti-Nuke Dashboard';
-    let description =
-        'Manage and monitor your server protection against malicious activity.';
-    let details = '';
+    let title = 'Anti-Nuke Dashboard';
+    let description = '';
 
     if (page === 'overview') {
         const enabled = Object.values(
@@ -111,127 +96,113 @@ async function buildDashboard(client, guild, page, disabled = false) {
             ? guild.channels.cache.get(logChannel)?.name || logChannel
             : 'Not configured';
 
-        details = codeBlock([
-            `Server: ${guild.name}`,
-            `Status: ${settings.enabled ? 'ENABLED' : 'DISABLED'}`,
-            `Punishment: ${String(settings.punishment || 'strip').toUpperCase()}`,
-            `Log Channel: ${logChannel ? `#${channelName}` : 'Not configured'}`,
-            `Protections: ${enabled} / ${Object.keys(ACTIONS).length} enabled`,
-            `Whitelisted Users: ${whitelist.length}`
-        ]);
-
-        description =
-            'Your server security at a glance. Use the navigation buttons below to browse each Anti-Nuke section.';
-    }
-
-    if (page === 'protections') {
-        heading = 'Anti-Nuke / Protections';
-        description =
-            'Review the protection modules currently active for this server.';
-
-        details = Object.entries(ACTIONS).map(([key, label]) =>
-            `${settings.protections?.[key] ? '●' : '○'} **${label}** — ${settings.protections?.[key] ? 'Enabled' : 'Disabled'}`
-        ).join('\n');
-
-        details +=
-            '\n\n**Configuration**\n`,antinuke protection <module> on|off`';
-    }
-
-    if (page === 'punishment') {
-        heading = 'Anti-Nuke / Punishment';
-        description =
-            'Review the action Jurukai takes when Anti-Nuke detects suspicious activity.';
-
-        details = [
-            `**Current punishment:** ${String(settings.punishment || 'strip').toUpperCase()}`,
+        description = [
+            'Manage and monitor your server protection against malicious activity.',
             '',
-            '**Available punishments**',
-            `${settings.punishment === 'strip' ? '●' : '○'} **STRIP** — Remove manageable roles`,
-            `${settings.punishment === 'ban' ? '●' : '○'} **BAN** — Ban the executor`,
-            `${settings.punishment === 'kick' ? '●' : '○'} **KICK** — Kick the executor`,
-            `${settings.punishment === 'timeout' ? '●' : '○'} **TIMEOUT** — Timeout for one hour`,
-            '',
-            '**Command**',
-            '`,antinuke punishment <strip|ban|kick|timeout>`'
+            `**Server:** ${guild.name}`,
+            `**Status:** ${settings.enabled ? 'ENABLED' : 'DISABLED'}`,
+            `**Punishment:** ${String(settings.punishment || 'strip').toUpperCase()}`,
+            `**Log Channel:** ${logChannel ? `#${channelName}` : 'Not configured'}`,
+            `**Protections Enabled:** ${enabled} / ${Object.keys(ACTIONS).length}`,
+            `**Whitelisted Users:** ${whitelist.length}`
         ].join('\n');
     }
 
-    if (page === 'whitelist') {
-        heading = 'Anti-Nuke / Whitelist';
-        description =
-            'Trusted users are excluded from Anti-Nuke enforcement. The server owner is protected automatically.';
+    else if (page === 'protections') {
+        title = 'Anti-Nuke | Protections';
+
+        description = [
+            'Review the protection modules currently active for this server.',
+            '',
+            ...Object.entries(ACTIONS).map(([key, label]) =>
+                `**${label}:** ${settings.protections?.[key] ? 'ENABLED' : 'DISABLED'}`
+            ),
+            '',
+            '**Configure:** `,antinuke protection <module> on|off`'
+        ].join('\n');
+    }
+
+    else if (page === 'punishment') {
+        title = 'Anti-Nuke | Punishment';
+
+        description = [
+            'Choose what Jurukai does when Anti-Nuke detects suspicious activity.',
+            '',
+            `**Current punishment:** ${String(settings.punishment || 'strip').toUpperCase()}`,
+            '',
+            `**${settings.punishment === 'strip' ? '●' : '○'} STRIP** — Remove manageable roles`,
+            `**${settings.punishment === 'ban' ? '●' : '○'} BAN** — Ban the executor`,
+            `**${settings.punishment === 'kick' ? '●' : '○'} KICK** — Kick the executor`,
+            `**${settings.punishment === 'timeout' ? '●' : '○'} TIMEOUT** — Timeout for one hour`,
+            '',
+            '**Configure:** `,antinuke punishment <strip|ban|kick|timeout>`'
+        ].join('\n');
+    }
+
+    else if (page === 'whitelist') {
+        title = 'Anti-Nuke | Whitelist';
 
         const users = whitelist.length
             ? whitelist.slice(0, 20).map(id => `• <@${id}>`).join('\n')
             : 'No additional trusted users configured.';
 
-        details = [
+        description = [
+            'Trusted users are excluded from Anti-Nuke enforcement. The server owner is protected automatically.',
+            '',
             `**Trusted Users (${whitelist.length})**`,
             users,
             '',
-            '**Add User**',
-            '`,antinuke whitelist add @user`',
-            '',
-            '**Remove User**',
-            '`,antinuke whitelist remove @user`'
+            '**Add:** `,antinuke whitelist add @user`',
+            '**Remove:** `,antinuke whitelist remove @user`'
         ].join('\n');
     }
 
-    if (page === 'thresholds') {
-        heading = 'Anti-Nuke / Thresholds';
-        description =
-            'Review how many actions are allowed before Anti-Nuke enforcement is triggered.';
+    else if (page === 'thresholds') {
+        title = 'Anti-Nuke | Thresholds';
 
-        details = Object.entries(ACTIONS).map(([key, label]) => {
-            const threshold = settings.thresholds?.[key];
+        description = [
+            'Review how many actions are allowed before enforcement is triggered.',
+            '',
+            ...Object.entries(ACTIONS).map(([key, label]) => {
+                const threshold = settings.thresholds?.[key];
 
-            return threshold
-                ? `**${label}** — ${threshold.limit} actions / ${Math.round(threshold.interval / 1000)} seconds`
-                : `**${label}** — Not configured`;
-        }).join('\n');
-
-        details +=
-            '\n\n**Configuration**\n`,antinuke threshold <module> <amount> <seconds>`';
+                return threshold
+                    ? `**${label}:** ${threshold.limit} actions / ${Math.round(threshold.interval / 1000)} seconds`
+                    : `**${label}:** Not configured`;
+            }),
+            '',
+            '**Configure:** `,antinuke threshold <module> <amount> <seconds>`'
+        ].join('\n');
     }
 
-    if (page === 'logs') {
-        heading = 'Anti-Nuke / Logs';
-        description =
-            'Choose where Jurukai posts Anti-Nuke security reports.';
+    else if (page === 'logs') {
+        title = 'Anti-Nuke | Logs';
 
         const channelName = logChannel
             ? guild.channels.cache.get(logChannel)?.name || logChannel
             : 'Not configured';
 
-        details = codeBlock([
-            `Log Channel: ${logChannel ? `#${channelName}` : 'Not configured'}`,
+        description = [
+            'Choose where Jurukai posts Anti-Nuke security reports.',
             '',
-            'Set channel: ,antinuke logchannel #channel'
-        ]);
+            `**Current log channel:** ${logChannel ? `#${channelName}` : 'Not configured'}`,
+            '',
+            '**Set channel:** `,antinuke logchannel #channel`'
+        ].join('\n');
     }
 
-    return new ContainerBuilder()
-        .setAccentColor(COLOR)
-        .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(
-                '### 🛡️ JURUKAI SECURITY'
-            ),
-            new TextDisplayBuilder().setContent(
-                `# ${heading}`
-            ),
-            new TextDisplayBuilder().setContent(
-                description
-            ),
-            new TextDisplayBuilder().setContent(
-                details
-            ),
-            new TextDisplayBuilder().setContent(
-                '**JURUKAI • SECURITY SYSTEM**'
-            )
-        )
-        .addActionRowComponents(
-            ...makeNavigation(page, disabled)
-        );
+    return new EmbedBuilder()
+        .setColor(COLOR)
+        .setAuthor({
+            name: 'JURUKAI SECURITY',
+            iconURL: client.user.displayAvatarURL()
+        })
+        .setTitle(title)
+        .setDescription(description.slice(0, 4000))
+        .setFooter({
+            text: `Jurukai | Anti-Nuke | ${guild.name}`
+        })
+        .setTimestamp();
 }
 
 export default {
@@ -244,27 +215,32 @@ export default {
         if (!guild) return;
 
         const isOwner = guild.ownerId === message.author.id;
+
         const isAdmin = message.member.permissions.has(
             PermissionFlagsBits.Administrator
         );
+
         const canManage = message.member.permissions.has(
             PermissionFlagsBits.ManageGuild
         );
 
         if (!isOwner && !isAdmin && !canManage) {
-            return message.reply(
-                'You need Manage Server or Administrator to configure Anti-Nuke.'
-            );
+            return message.reply({
+                content: 'You need Manage Server or Administrator to configure Anti-Nuke.',
+                allowedMentions: { repliedUser: false }
+            });
         }
 
         const subcommand = args[0]?.toLowerCase();
 
+        // DASHBOARD
         if (!subcommand || subcommand === 'help' || subcommand === 'status') {
             const sent = await message.reply({
-                components: [
+                embeds: [
                     await buildDashboard(client, guild, 'overview')
                 ],
-                flags: MessageFlags.IsComponentsV2
+                components: makeNavigation('overview'),
+                allowedMentions: { repliedUser: false }
             });
 
             const collector = sent.createMessageComponentCollector({
@@ -289,13 +265,14 @@ export default {
 
                 try {
                     await interaction.update({
-                        components: [
+                        embeds: [
                             await buildDashboard(client, guild, page)
-                        ]
+                        ],
+                        components: makeNavigation(page)
                     });
                 } catch (error) {
                     console.error(
-                        '[JURUKAI ANTINUKE] Dashboard error:',
+                        '[JURUKAI ANTINUKE] Dashboard navigation error:',
                         error
                     );
 
@@ -310,15 +287,14 @@ export default {
 
             collector.on('end', async () => {
                 await sent.edit({
-                    components: [
-                        await buildDashboard(client, guild, 'overview', true)
-                    ]
+                    components: makeNavigation('overview', true)
                 }).catch(() => {});
             });
 
             return sent;
         }
 
+        // ENABLE / DISABLE
         if (subcommand === 'enable' || subcommand === 'disable') {
             const enabled = subcommand === 'enable';
 
@@ -335,8 +311,10 @@ export default {
             });
         }
 
+        // WHITELIST
         if (subcommand === 'whitelist') {
             const operation = args[1]?.toLowerCase();
+
             const targetId =
                 getTargetId(args[2]) ||
                 message.mentions.users.first()?.id;
@@ -386,6 +364,7 @@ export default {
             });
         }
 
+        // PUNISHMENT
         if (subcommand === 'punishment') {
             const punishment = args[1]?.toLowerCase();
 
@@ -408,6 +387,7 @@ export default {
             });
         }
 
+        // LOG CHANNEL
         if (subcommand === 'logchannel') {
             const channelId =
                 getTargetId(args[1]) ||
@@ -443,6 +423,7 @@ export default {
             });
         }
 
+        // PROTECTION MODULES
         if (subcommand === 'protection') {
             const action = args[1];
             const state = args[2]?.toLowerCase();
@@ -470,6 +451,7 @@ export default {
             });
         }
 
+        // THRESHOLDS
         if (subcommand === 'threshold') {
             const action = args[1];
             const limit = Number(args[2]);
