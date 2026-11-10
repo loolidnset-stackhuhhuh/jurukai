@@ -1,250 +1,389 @@
 
 import {
-  AuditLogEvent,
-  PermissionFlagsBits,
+    AuditLogEvent
 } from 'discord.js';
 
-const guildSettings = new Map();
-const actionHistory = new Map();
+import {
+    getAntiNukeData,
+    saveAntiNukeData,
+    getAntiNukeWhitelist,
+    addAntiNukeWhitelist as saveWhitelistUser,
+    removeAntiNukeWhitelist as deleteWhitelistUser
+} from '../database/antinuke.js';
 
 const DEFAULT_SETTINGS = {
-  enabled: false,
-  punishment: 'strip',
-  logChannel: null,
-  whitelist: [],
-  thresholds: {
-    channelDelete: { limit: 2, interval: 10000 },
-    channelCreate: { limit: 5, interval: 10000 },
-    roleDelete: { limit: 2, interval: 10000 },
-    roleCreate: { limit: 5, interval: 10000 },
-    ban: { limit: 3, interval: 10000 },
-    kick: { limit: 4, interval: 10000 },
-    webhook: { limit: 2, interval: 10000 },
-    botAdd: { limit: 1, interval: 10000 },
-  },
-  protections: {
-    channelDelete: true,
-    channelCreate: true,
-    roleDelete: true,
-    roleCreate: true,
-    ban: true,
-    kick: true,
-    webhook: true,
-    botAdd: true,
-  },
+    enabled: false,
+    punishment: 'strip',
+    logChannel: null,
+
+    protections: {
+        channelDelete: true,
+        channelCreate: true,
+        roleDelete: true,
+        roleCreate: true,
+        ban: true,
+        kick: true,
+        webhook: true,
+        botAdd: true
+    },
+
+    thresholds: {
+        channelDelete: { limit: 2, interval: 10000 },
+        channelCreate: { limit: 5, interval: 10000 },
+        roleDelete: { limit: 2, interval: 10000 },
+        roleCreate: { limit: 5, interval: 10000 },
+        ban: { limit: 3, interval: 10000 },
+        kick: { limit: 4, interval: 10000 },
+        webhook: { limit: 2, interval: 10000 },
+        botAdd: { limit: 1, interval: 10000 }
+    }
 };
 
-function getSettings(guildId) {
-  if (!guildSettings.has(guildId)) {
-    guildSettings.set(
-      guildId,
-      structuredClone(DEFAULT_SETTINGS)
-    );
-  }
+const settingsCache = new Map();
+const whitelistCache = new Map();
+const actionHistory = new Map();
+const punishmentCooldowns = new Map();
 
-  return guildSettings.get(guildId);
+const PUNISHMENT_COOLDOWN = 60000;
+
+function mergeSettings(saved = {}) {
+    return {
+        ...structuredClone(DEFAULT_SETTINGS),
+        ...saved,
+        protections: {
+            ...DEFAULT_SETTINGS.protections,
+            ...(saved.protections || {})
+        },
+        thresholds: {
+            ...DEFAULT_SETTINGS.thresholds,
+            ...(saved.thresholds || {})
+        }
+    };
 }
 
-export function configureAntiNuke(guildId, updates = {}) {
-  const settings = getSettings(guildId);
+async function loadSettings(guildId) {
+    if (settingsCache.has(guildId)) {
+        return settingsCache.get(guildId);
+    }
 
-  if (updates.punishment) {
-    settings.punishment = updates.punishment;
-  }
+    const saved = await getAntiNukeData(guildId);
 
-  if (updates.logChannel !== undefined) {
-    settings.logChannel = updates.logChannel;
-  }
+    const settings = mergeSettings(saved || {});
 
-  if (updates.enabled !== undefined) {
-    settings.enabled = updates.enabled;
-  }
+    settingsCache.set(guildId, settings);
 
-  if (updates.protections) {
-    Object.assign(settings.protections, updates.protections);
-  }
+    if (!saved) {
+        await saveAntiNukeData(guildId, settings);
+    }
 
-  if (updates.thresholds) {
-    Object.assign(settings.thresholds, updates.thresholds);
-  }
-
-  return settings;
+    return settings;
 }
 
-export function getAntiNukeSettings(guildId) {
-  return getSettings(guildId);
+async function loadWhitelist(guildId) {
+    if (whitelistCache.has(guildId)) {
+        return whitelistCache.get(guildId);
+    }
+
+    const users = await getAntiNukeWhitelist(guildId);
+
+    whitelistCache.set(guildId, users);
+
+    return users;
 }
 
-export function addAntiNukeWhitelist(guildId, userId) {
-  const settings = getSettings(guildId);
+async function persistSettings(guildId, settings) {
+    await saveAntiNukeData(guildId, settings);
+    settingsCache.set(guildId, settings);
 
-  if (!settings.whitelist.includes(userId)) {
-    settings.whitelist.push(userId);
-  }
-
-  return settings.whitelist;
+    return settings;
 }
 
-export function removeAntiNukeWhitelist(guildId, userId) {
-  const settings = getSettings(guildId);
+export async function configureAntiNuke(guildId, updates = {}) {
+    const settings = await loadSettings(guildId);
 
-  settings.whitelist = settings.whitelist.filter(
-    id => id !== userId
-  );
+    if (updates.enabled !== undefined) {
+        settings.enabled = Boolean(updates.enabled);
+    }
 
-  return settings.whitelist;
+    if (updates.punishment) {
+        const allowed = ['strip', 'ban', 'kick', 'timeout'];
+
+        if (!allowed.includes(updates.punishment)) {
+            throw new Error('Invalid Anti-Nuke punishment.');
+        }
+
+        settings.punishment = updates.punishment;
+    }
+
+    if (updates.logChannel !== undefined) {
+        settings.logChannel = updates.logChannel;
+    }
+
+    if (updates.protections) {
+        Object.assign(settings.protections, updates.protections);
+    }
+
+    if (updates.thresholds) {
+        Object.assign(settings.thresholds, updates.thresholds);
+    }
+
+    return persistSettings(guildId, settings);
 }
 
-export function isWhitelisted(guild, userId) {
-  const settings = getSettings(guild.id);
+export async function getAntiNukeSettings(guildId) {
+    return loadSettings(guildId);
+}
 
-  return (
-    userId === guild.ownerId ||
-    settings.whitelist.includes(userId)
-  );
+export async function addAntiNukeWhitelist(guildId, userId) {
+    await saveWhitelistUser(guildId, userId);
+
+    const users = await getAntiNukeWhitelist(guildId);
+
+    whitelistCache.set(guildId, users);
+
+    return users;
+}
+
+export async function removeAntiNukeWhitelist(guildId, userId) {
+    await deleteWhitelistUser(guildId, userId);
+
+    const users = await getAntiNukeWhitelist(guildId);
+
+    whitelistCache.set(guildId, users);
+
+    return users;
+}
+
+export async function isWhitelisted(guild, userId) {
+    if (userId === guild.ownerId) return true;
+
+    const users = await loadWhitelist(guild.id);
+
+    return users.includes(userId);
 }
 
 async function punishExecutor(guild, executor, settings) {
-  const member = await guild.members.fetch(executor.id).catch(() => null);
+    const member = await guild.members.fetch(executor.id)
+        .catch(() => null);
 
-  if (!member || !member.manageable) return 'Could not moderate executor';
+    if (!member) return 'Executor not found';
 
-  switch (settings.punishment) {
-    case 'ban':
-      await member.ban({
-        reason: 'Anti-Nuke: Suspicious destructive activity.',
-      });
-      return 'Banned';
-
-    case 'kick':
-      await member.kick(
-        'Anti-Nuke: Suspicious destructive activity.'
-      );
-      return 'Kicked';
-
-    case 'strip': {
-      const roles = member.roles.cache
-        .filter(role =>
-          role.id !== guild.id &&
-          role.editable
-        );
-
-      if (!roles.size) return 'No removable roles';
-
-      await member.roles.remove(
-        roles,
-        'Anti-Nuke: Suspicious destructive activity.'
-      );
-
-      return 'Dangerous roles removed';
+    if (member.id === guild.ownerId) {
+        return 'Owner protected';
     }
 
-    case 'timeout':
-      await member.timeout(
-        60 * 60 * 1000,
-        'Anti-Nuke: Suspicious destructive activity.'
-      );
-      return 'Timed out';
+    if (!member.moderatable && settings.punishment !== 'ban'
+        && settings.punishment !== 'kick') {
+        return 'Executor cannot be moderated';
+    }
 
-    default:
-      return 'No punishment applied';
-  }
+    switch (settings.punishment) {
+        case 'ban':
+            if (!member.bannable) return 'Cannot ban executor';
+
+            await member.ban({
+                reason: 'Altare Anti-Nuke: Suspicious destructive activity.'
+            });
+
+            return 'Banned';
+
+        case 'kick':
+            if (!member.kickable) return 'Cannot kick executor';
+
+            await member.kick(
+                'Altare Anti-Nuke: Suspicious destructive activity.'
+            );
+
+            return 'Kicked';
+
+        case 'timeout':
+            if (!member.moderatable) return 'Cannot timeout executor';
+
+            await member.timeout(
+                60 * 60 * 1000,
+                'Altare Anti-Nuke: Suspicious destructive activity.'
+            );
+
+            return 'Timed out for 1 hour';
+
+        case 'strip': {
+            if (!member.manageable) return 'Cannot remove executor roles';
+
+            const roles = member.roles.cache.filter(role =>
+                role.id !== guild.id &&
+                !role.managed &&
+                role.editable
+            );
+
+            if (!roles.size) return 'No removable roles';
+
+            await member.roles.remove(
+                roles,
+                'Altare Anti-Nuke: Suspicious destructive activity.'
+            );
+
+            return 'Removable roles stripped';
+        }
+
+        default:
+            return 'No punishment applied';
+    }
 }
 
-async function sendAntiNukeLog(guild, executor, action, count, punishment) {
-  const settings = getSettings(guild.id);
-
-  if (!settings.logChannel) return;
-
-  const channel = await guild.channels
-    .fetch(settings.logChannel)
-    .catch(() => null);
-
-  if (!channel?.isTextBased() || !channel.send) return;
-
-  await channel.send({
-    embeds: [{
-      color: 0xff69b4,
-      title: 'Anti-Nuke Protection Triggered',
-      fields: [
-        {
-          name: 'Executor',
-          value: `${executor} (\`${executor.id}\`)`,
-        },
-        {
-          name: 'Detected Action',
-          value: action,
-          inline: true,
-        },
-        {
-          name: 'Actions Detected',
-          value: String(count),
-          inline: true,
-        },
-        {
-          name: 'Punishment',
-          value: punishment,
-        },
-      ],
-      timestamp: new Date().toISOString(),
-      footer: { text: 'Altare Security System' },
-    }],
-  }).catch(() => null);
-}
-
-export async function checkAntiNuke({
-  guild,
-  executor,
-  action,
-  auditAction,
-}) {
-  if (!guild || !executor) return false;
-
-  const settings = getSettings(guild.id);
-
-  if (!settings.enabled) return false;
-  if (!settings.protections[action]) return false;
-
-  if (isWhitelisted(guild, executor.id)) return false;
-
-  const threshold = settings.thresholds[action];
-
-  if (!threshold) return false;
-
-  const now = Date.now();
-  const key = `${guild.id}:${executor.id}:${action}`;
-
-  if (!actionHistory.has(key)) {
-    actionHistory.set(key, []);
-  }
-
-  const history = actionHistory.get(key).filter(
-    timestamp => now - timestamp < threshold.interval
-  );
-
-  history.push(now);
-  actionHistory.set(key, history);
-
-  if (history.length < threshold.limit) return false;
-
-  // Prevent repeated punishment for the same burst.
-  actionHistory.set(key, []);
-
-  const punishment = await punishExecutor(
-    guild,
-    executor,
-    settings
-  ).catch(() => 'Punishment failed');
-
-  await sendAntiNukeLog(
+async function sendAntiNukeLog(
     guild,
     executor,
     action,
-    history.length,
+    count,
     punishment
-  );
+) {
+    const settings = await loadSettings(guild.id);
 
-  return true;
+    if (!settings.logChannel) return;
+
+    const channel = await guild.channels.fetch(settings.logChannel)
+        .catch(() => null);
+
+    if (!channel?.isTextBased() || !channel.send) return;
+
+    await channel.send({
+        embeds: [{
+            color: 0xff69b4,
+            title: 'Altare | Anti-Nuke Triggered',
+            fields: [
+                {
+                    name: 'Executor',
+                    value: `${executor.tag || executor.username} (\`${executor.id}\`)`
+                },
+                {
+                    name: 'Detected Action',
+                    value: action,
+                    inline: true
+                },
+                {
+                    name: 'Actions Detected',
+                    value: String(count),
+                    inline: true
+                },
+                {
+                    name: 'Punishment',
+                    value: punishment
+                }
+            ],
+            timestamp: new Date().toISOString(),
+            footer: {
+                text: 'Altare Security System'
+            }
+        }],
+        allowedMentions: { parse: [] }
+    }).catch(error => {
+        console.error('[ALTARE ANTINUKE] Log error:', error);
+    });
+}
+
+export async function checkAntiNuke({
+    guild,
+    executor,
+    action,
+    auditAction
+}) {
+    if (!guild || !executor) return false;
+
+    try {
+        const settings = await loadSettings(guild.id);
+
+        if (!settings.enabled) return false;
+        if (!settings.protections[action]) return false;
+
+        if (executor.bot && executor.id === guild.client.user.id) {
+            return false;
+        }
+
+        if (await isWhitelisted(guild, executor.id)) {
+            return false;
+        }
+
+        const threshold = settings.thresholds[action];
+
+        if (
+            !threshold ||
+            !Number.isInteger(threshold.limit) ||
+            threshold.limit < 1
+        ) {
+            return false;
+        }
+
+        const now = Date.now();
+
+        const key = `${guild.id}:${executor.id}:${action}`;
+
+        const cooldownKey = `${guild.id}:${executor.id}`;
+
+        const lastPunishment = punishmentCooldowns.get(cooldownKey) || 0;
+
+        if (now - lastPunishment < PUNISHMENT_COOLDOWN) {
+            return false;
+        }
+
+        const history = (actionHistory.get(key) || [])
+            .filter(timestamp =>
+                now - timestamp < threshold.interval
+            );
+
+        history.push(now);
+
+        actionHistory.set(key, history);
+
+        if (history.length < threshold.limit) {
+            return false;
+        }
+
+        actionHistory.set(key, []);
+
+        punishmentCooldowns.set(cooldownKey, now);
+
+        const actionNames = {
+            channelDelete: 'Channel Deletion',
+            channelCreate: 'Channel Creation',
+            roleDelete: 'Role Deletion',
+            roleCreate: 'Role Creation',
+            ban: 'Member Ban',
+            kick: 'Member Kick',
+            webhook: 'Webhook Activity',
+            botAdd: 'Bot Addition'
+        };
+
+        const punishment = await punishExecutor(
+            guild,
+            executor,
+            settings
+        ).catch(error => {
+            console.error(
+                '[ALTARE ANTINUKE] Punishment error:',
+                error
+            );
+
+            return 'Punishment failed';
+        });
+
+        await sendAntiNukeLog(
+            guild,
+            executor,
+            actionNames[action] || action,
+            history.length,
+            punishment
+        );
+
+        return true;
+
+    } catch (error) {
+        console.error(
+            '[ALTARE ANTINUKE] Detection error:',
+            error
+        );
+
+        return false;
+    }
 }
 
 export { DEFAULT_SETTINGS };
