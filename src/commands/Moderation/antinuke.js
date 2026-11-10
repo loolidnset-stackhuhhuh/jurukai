@@ -34,7 +34,7 @@ const ACTIONS = {
 const PUNISHMENTS = ['strip', 'ban', 'kick', 'timeout'];
 
 const PAGES = [
-    ['overview', 'Overview', '⌂'],
+    ['overview', 'Overview', '🏠'],
     ['protections', 'Protections', '🛡️'],
     ['punishment', 'Punishment', '⚖️'],
     ['whitelist', 'Whitelist', '👥'],
