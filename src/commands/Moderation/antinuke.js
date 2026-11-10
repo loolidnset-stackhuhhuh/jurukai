@@ -21,7 +21,7 @@ import {
     getAntiNukeWhitelist
 } from '../../database/antinuke.js';
 
-const COLOR = 0x3a4f52;
+const COLOR = 0x3a4f53;
 
 const ACTIONS = {
     channelDelete: 'Channel Deletion',
@@ -57,13 +57,13 @@ function makeNotice(client, title, description) {
     return new EmbedBuilder()
         .setColor(COLOR)
         .setAuthor({
-            name: 'JURUKAI SECURITY',
+            name: 'Jurukai Help',
             iconURL: client.user.displayAvatarURL()
         })
         .setTitle(title)
         .setDescription(description)
         .setFooter({
-            text: 'JURUKAI • Security System'
+            text: 'Jurukai Help'
         });
 }
 
