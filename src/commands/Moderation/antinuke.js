@@ -84,7 +84,7 @@ async function buildDashboard(client, guild, page) {
     const whitelist = await getAntiNukeWhitelist(guild.id);
     const logChannel = getLogChannel(settings);
 
-    let title = 'Anti-Nuke Dashboard';
+    let title = 'Command: antinuke';
     let description = '';
 
     if (page === 'overview') {
@@ -99,8 +99,8 @@ async function buildDashboard(client, guild, page) {
         description = [
             'Browse every antinuke command and configuration surface.',
             '',
-            `**Syntax:** ,antinuke`,
-            `**Status:** ,antinuke`,
+            ````Syntax: ,antinuke`,
+            `Status: ,antinuke````,
         ].join('\n');
     }
 
@@ -300,8 +300,7 @@ export default {
                 embeds: [
                     makeNotice(
                         client,
-                        'System Updated',
-                        `Anti-Nuke is now **${enabled ? 'enabled' : 'disabled'}**.`
+                        `<:approve:1562121487165558947> Antinuke protection is now **${Enabled ? 'enabled' : 'disabled'}**.`
                     )
                 ]
             });
