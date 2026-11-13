@@ -350,7 +350,9 @@ export default {
                 });
             }
 
-            const protection = args[1]?.toLowerCase();
+            const protection = Object.keys(settings.protections).find(
+    name => name.toLowerCase() === args[1]?.toLowerCase()
+);
             const state = args[2]?.toLowerCase();
 
             if (!Object.hasOwn(settings.protections, protection)) {
@@ -424,7 +426,9 @@ export default {
                 });
             }
 
-            const protection = args[1]?.toLowerCase();
+            const protection = Object.keys(settings.thresholds).find(
+    name => name.toLowerCase() === args[1]?.toLowerCase()
+);
             const limit = Number(args[2]);
             const seconds = Number(args[3]);
 
