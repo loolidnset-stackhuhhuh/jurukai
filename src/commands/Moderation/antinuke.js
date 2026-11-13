@@ -1,4 +1,3 @@
-
 import { EmbedBuilder } from 'discord.js';
 
 import {
@@ -53,6 +52,9 @@ function buildHelp(client) {
             '**Protection**\n' +
             '`,antinuke enable`\n' +
             '`,antinuke disable`\n\n' +
+            '**Logs**\n' +
+            '`,antinuke log #channel`\n' +
+            '`,antinuke log disable`\n\n' +
             '**Admins**\n' +
             '`,antinuke admin add @user`\n' +
             '`,antinuke admin remove @user`\n' +
@@ -94,11 +96,11 @@ function getRoleMention(guild, roleIds) {
 function getUserId(input) {
     if (!input) return null;
 
-    const match = input.match(/^<@!?(\d{17,20})>$/);
+    const match = input.match(/^<@!?(\\d{17,20})>$/);
 
     if (match) return match[1];
 
-    if (/^\d{17,20}$/.test(input)) {
+    if (/^\\d{17,20}$/.test(input)) {
         return input;
     }
 
@@ -262,8 +264,6 @@ export default {
 
         // ADMIN MANAGEMENT
         if (subcommand === 'admin') {
-            // Only the owner and existing Anti-Nuke admins
-            // can manage the Anti-Nuke admin list.
             if (!isOwner && !isAdmin) {
                 return message.channel.send({
                     embeds: [
@@ -352,8 +352,6 @@ export default {
                     }
 
                     await addAntiNukeAdmin(guild.id, target.id);
-
-                    // Admins should not also remain on the blacklist.
                     await removeAntiNukeBlacklist(guild.id, target.id);
 
                     return message.channel.send({
@@ -416,6 +414,83 @@ export default {
                         ' you must have ' +
                         getRoleMention(guild, roleIds) +
                         ' perms.'
+                    )
+                ]
+            });
+        }
+
+        // LOG CHANNEL
+        if (subcommand === 'log') {
+            if (action === 'disable') {
+                const settings = await getAntiNukeSettings(guild.id);
+
+                if (!settings.logChannel) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.deny,
+                                EMOJIS.deny +
+                                ' Anti-Nuke logging is already disabled.'
+                            )
+                        ]
+                    });
+                }
+
+                await configureAntiNuke(guild.id, {
+                    logChannel: null
+                });
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.approve,
+                            EMOJIS.approve +
+                            ' Anti-Nuke logging has been **disabled**.'
+                        )
+                    ]
+                });
+            }
+
+            const channelMatch = args[1]?.match(/^<#(\\d{17,20})>$/);
+            const channelId = channelMatch?.[1];
+
+            if (!channelId) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning +
+                            ' mention a text channel. Example: `,antinuke log #channel` or use `,antinuke log disable`.'
+                        )
+                    ]
+                });
+            }
+
+            const channel = await guild.channels.fetch(channelId)
+                .catch(() => null);
+
+            if (!channel || !channel.isTextBased() || !channel.send) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning +
+                            ' that is not a valid text channel in this server.'
+                        )
+                    ]
+                });
+            }
+
+            await configureAntiNuke(guild.id, {
+                logChannel: channel.id
+            });
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.approve,
+                        EMOJIS.approve +
+                        ` Anti-Nuke logs will now be sent to ${channel}.`
                     )
                 ]
             });
@@ -487,8 +562,6 @@ export default {
                     }
 
                     await addAntiNukeWhitelist(guild.id, target.id);
-
-                    // A whitelisted user should not also be blacklisted.
                     await removeAntiNukeBlacklist(guild.id, target.id);
 
                     return message.channel.send({
@@ -625,8 +698,6 @@ export default {
                     }
 
                     await addAntiNukeBlacklist(guild.id, target.id);
-
-                    // A blacklisted user should not also remain whitelisted.
                     await removeAntiNukeWhitelist(guild.id, target.id);
 
                     return message.channel.send({
@@ -722,7 +793,7 @@ export default {
                 createResponse(
                     COLORS.warning,
                     EMOJIS.warning +
-                    ' use `,antinuke`, `,antinuke enable`, `,antinuke disable`, `,antinuke admin`, `,antinuke whitelist`, or `,antinuke blacklist`.'
+                    '```,antinuke, ,antinuke enable, ,antinuke disable, ,antinuke log, ,antinuke admin, ,antinuke whitelist, or ,antinuke blacklist```.'
                 )
             ]
         });
