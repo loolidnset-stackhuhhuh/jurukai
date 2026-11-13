@@ -8,7 +8,13 @@ import {
     saveAntiNukeData,
     getAntiNukeWhitelist,
     addAntiNukeWhitelist as saveWhitelistUser,
-    removeAntiNukeWhitelist as deleteWhitelistUser
+    removeAntiNukeWhitelist as deleteWhitelistUser,
+    getAntiNukeAdmins,
+    addAntiNukeAdmin as saveAdminUser,
+    removeAntiNukeAdmin as deleteAdminUser,
+    getAntiNukeBlacklist,
+    addAntiNukeBlacklist as saveBlacklistedUser,
+    removeAntiNukeBlacklist as deleteBlacklistedUser
 } from '../database/antinuke.js';
 
 const DEFAULT_SETTINGS = {
@@ -41,6 +47,8 @@ const DEFAULT_SETTINGS = {
 
 const settingsCache = new Map();
 const whitelistCache = new Map();
+const adminCache = new Map();
+const blacklistCache = new Map();
 const actionHistory = new Map();
 const punishmentCooldowns = new Map();
 
@@ -67,7 +75,6 @@ async function loadSettings(guildId) {
     }
 
     const saved = await getAntiNukeData(guildId);
-
     const settings = mergeSettings(saved || {});
 
     settingsCache.set(guildId, settings);
@@ -91,12 +98,38 @@ async function loadWhitelist(guildId) {
     return users;
 }
 
+async function loadAdmins(guildId) {
+    if (adminCache.has(guildId)) {
+        return adminCache.get(guildId);
+    }
+
+    const users = await getAntiNukeAdmins(guildId);
+
+    adminCache.set(guildId, users);
+
+    return users;
+}
+
+async function loadBlacklist(guildId) {
+    if (blacklistCache.has(guildId)) {
+        return blacklistCache.get(guildId);
+    }
+
+    const users = await getAntiNukeBlacklist(guildId);
+
+    blacklistCache.set(guildId, users);
+
+    return users;
+}
+
 async function persistSettings(guildId, settings) {
     await saveAntiNukeData(guildId, settings);
     settingsCache.set(guildId, settings);
 
     return settings;
 }
+
+// SETTINGS
 
 export async function configureAntiNuke(guildId, updates = {}) {
     const settings = await loadSettings(guildId);
@@ -134,6 +167,8 @@ export async function getAntiNukeSettings(guildId) {
     return loadSettings(guildId);
 }
 
+// WHITELIST
+
 export async function addAntiNukeWhitelist(guildId, userId) {
     await saveWhitelistUser(guildId, userId);
 
@@ -154,6 +189,10 @@ export async function removeAntiNukeWhitelist(guildId, userId) {
     return users;
 }
 
+export async function getAntiNukeWhitelistUsers(guildId) {
+    return loadWhitelist(guildId);
+}
+
 export async function isWhitelisted(guild, userId) {
     if (userId === guild.ownerId) return true;
 
@@ -161,6 +200,140 @@ export async function isWhitelisted(guild, userId) {
 
     return users.includes(userId);
 }
+
+// ANTINUKE ADMINS
+
+export async function addAntiNukeAdmin(guildId, userId) {
+    await saveAdminUser(guildId, userId);
+
+    const users = await getAntiNukeAdmins(guildId);
+
+    adminCache.set(guildId, users);
+
+    return users;
+}
+
+export async function removeAntiNukeAdmin(guildId, userId) {
+    await deleteAdminUser(guildId, userId);
+
+    const users = await getAntiNukeAdmins(guildId);
+
+    adminCache.set(guildId, users);
+
+    return users;
+}
+
+export async function getAntiNukeAdminUsers(guildId) {
+    return loadAdmins(guildId);
+}
+
+export async function isAntiNukeAdmin(guildId, userId) {
+    const admins = await loadAdmins(guildId);
+
+    return admins.includes(userId);
+}
+
+// ANTINUKE BLACKLIST
+
+export async function addAntiNukeBlacklist(guildId, userId) {
+    await saveBlacklistedUser(guildId, userId);
+
+    const users = await getAntiNukeBlacklist(guildId);
+
+    blacklistCache.set(guildId, users);
+
+    return users;
+}
+
+export async function removeAntiNukeBlacklist(guildId, userId) {
+    await deleteBlacklistedUser(guildId, userId);
+
+    const users = await getAntiNukeBlacklist(guildId);
+
+    blacklistCache.set(guildId, users);
+
+    return users;
+}
+
+export async function getAntiNukeBlacklistUsers(guildId) {
+    return loadBlacklist(guildId);
+}
+
+export async function isAntiNukeBlacklisted(guildId, userId) {
+    const users = await loadBlacklist(guildId);
+
+    return users.includes(userId);
+}
+
+// STRIP ROLES FROM BLACKLISTED USERS
+
+export async function stripBlacklistedUser(member) {
+    if (!member?.guild || !member?.user) {
+        return {
+            success: false,
+            removed: 0,
+            reason: 'Member not found.'
+        };
+    }
+
+    const guild = member.guild;
+
+    if (member.id === guild.ownerId) {
+        return {
+            success: false,
+            removed: 0,
+            reason: 'Server owner is protected.'
+        };
+    }
+
+    if (!member.manageable) {
+        return {
+            success: false,
+            removed: 0,
+            reason: 'The bot cannot manage this member because of role hierarchy.'
+        };
+    }
+
+    const removableRoles = member.roles.cache.filter(role =>
+        role.id !== guild.id &&
+        !role.managed &&
+        role.editable
+    );
+
+    if (!removableRoles.size) {
+        return {
+            success: false,
+            removed: 0,
+            reason: 'No removable roles were found.'
+        };
+    }
+
+    try {
+        await member.roles.remove(
+            removableRoles,
+            'Anti-Nuke: Blacklisted user attempted to use an Anti-Nuke command.'
+        );
+
+        return {
+            success: true,
+            removed: removableRoles.size,
+            reason: 'Roles removed.'
+        };
+    } catch (error) {
+        console.error(
+            '[ALTARE ANTINUKE] Blacklist role removal failed:',
+            error
+        );
+
+        return {
+            success: false,
+            removed: 0,
+            reason: 'Discord rejected the role removal.'
+        };
+    }
+}
+
+// AUTOMATIC ANTINUKE PUNISHMENT
 
 async function punishExecutor(guild, executor, settings) {
     const member = await guild.members.fetch(executor.id)
@@ -172,8 +345,11 @@ async function punishExecutor(guild, executor, settings) {
         return 'Owner protected';
     }
 
-    if (!member.moderatable && settings.punishment !== 'ban'
-        && settings.punishment !== 'kick') {
+    if (
+        !member.moderatable &&
+        settings.punishment !== 'ban' &&
+        settings.punishment !== 'kick'
+    ) {
         return 'Executor cannot be moderated';
     }
 
@@ -207,7 +383,9 @@ async function punishExecutor(guild, executor, settings) {
             return 'Timed out for 1 hour';
 
         case 'strip': {
-            if (!member.manageable) return 'Cannot remove executor roles';
+            if (!member.manageable) {
+                return 'Cannot remove executor roles';
+            }
 
             const roles = member.roles.cache.filter(role =>
                 role.id !== guild.id &&
@@ -316,10 +494,10 @@ export async function checkAntiNuke({
         const now = Date.now();
 
         const key = `${guild.id}:${executor.id}:${action}`;
-
         const cooldownKey = `${guild.id}:${executor.id}`;
 
-        const lastPunishment = punishmentCooldowns.get(cooldownKey) || 0;
+        const lastPunishment =
+            punishmentCooldowns.get(cooldownKey) || 0;
 
         if (now - lastPunishment < PUNISHMENT_COOLDOWN) {
             return false;
@@ -331,7 +509,6 @@ export async function checkAntiNuke({
             );
 
         history.push(now);
-
         actionHistory.set(key, history);
 
         if (history.length < threshold.limit) {
@@ -339,7 +516,6 @@ export async function checkAntiNuke({
         }
 
         actionHistory.set(key, []);
-
         punishmentCooldowns.set(cooldownKey, now);
 
         const actionNames = {
