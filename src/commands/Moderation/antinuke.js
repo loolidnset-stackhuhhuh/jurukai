@@ -1,34 +1,68 @@
 
-import {
-    EmbedBuilder,
-    PermissionFlagsBits
-} from 'discord.js';
+import { EmbedBuilder } from 'discord.js';
 
 import {
-    configureAntiNuke
+    configureAntiNuke,
+    getAntiNukeSettings
 } from '../../services/antinukeService.js';
 
-const COLOR = 0x3a4f53;
+import {
+    getCommandRoles
+} from '../../services/commandPermissions.js';
 
+const COLORS = {
+    help: 0x0B0B0D,
+    approve: 0x57F287,
+    deny: 0xED4245,
+    warning: 0xFEE75C
+};
+
+const EMOJIS = {
+    approve: '<:approve:1562121487165558947>',
+    deny: '<:deny:1562121610813513871>',
+    warning: '<:warning:1562130172004540439>'
+};
+
+// Cayo-style Anti-Nuke help embed.
 function buildHelp(client) {
     return new EmbedBuilder()
-        .setColor(COLOR)
+        .setColor(COLORS.help)
         .setAuthor({
             name: 'Jurukai Help',
             iconURL: client.user.displayAvatarURL()
         })
         .setTitle('Command: antinuke')
-        .setDescription([
-            'Enable or disable Anti-Nuke protection for your server.',
-            '',
-            '```',
-            'Syntax: ,antinuke',
-            'Example: ,antinuke enable',
+        .setDescription(
+            'Browse every antinuke command and configuration surface.\n\n' +
+            '```\n' +
+            'Syntax: ,antinuke\n' +
+            'Example: ,antinuke\n' +
             '```'
-        ].join('\n'))
+        )
         .setFooter({
             text: 'Jurukai Help'
         });
+}
+
+// Simple standalone response embed.
+function createResponse(color, description) {
+    return new EmbedBuilder()
+        .setColor(color)
+        .setDescription(description);
+}
+
+function getRoleMention(guild, roleIds) {
+    if (!roleIds.length) {
+        return '**Anti-Nuke staff**';
+    }
+
+    return roleIds.map(roleId => {
+        const role = guild.roles.cache.get(roleId);
+
+        return role
+            ? '<@&' + roleId + '>'
+            : '**Anti-Nuke staff**';
+    }).join(' or ');
 }
 
 export default {
@@ -36,60 +70,117 @@ export default {
     aliases: ['an'],
     cooldown: 3,
 
+    // Anti-Nuke performs its own permission check.
+    handlesPermissions: true,
+
     async execute(client, message, args) {
         const guild = message.guild;
+
         if (!guild) return;
+
+        let roleIds = [];
+
+        try {
+            roleIds = await getCommandRoles(
+                guild.id,
+                'antinuke'
+            );
+        } catch (error) {
+            console.error(
+                '[JURUKAI ANTINUKE] Permission lookup failed:',
+                error
+            );
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        EMOJIS.warning +
+                        ' Anti-Nuke permissions could not be checked right now.'
+                    )
+                ]
+            });
+        }
 
         const isOwner = guild.ownerId === message.author.id;
 
-        const isAdmin = message.member.permissions.has(
-            PermissionFlagsBits.Administrator
+        const hasStaffRole = roleIds.some(roleId =>
+            message.member?.roles.cache.has(roleId)
         );
 
-        const canManage = message.member.permissions.has(
-            PermissionFlagsBits.ManageGuild
-        );
-
-        if (!isOwner && !isAdmin && !canManage) {
-            return message.reply({
-                content: 'You need Manage Server or Administrator to configure Anti-Nuke.',
-                allowedMentions: { repliedUser: false }
+        if (!isOwner && !hasStaffRole) {
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        EMOJIS.warning +
+                        ' you must have ' +
+                        getRoleMention(guild, roleIds) +
+                        ' perms.'
+                    )
+                ]
             });
         }
 
         const subcommand = args[0]?.toLowerCase();
 
-        // HELP PAGE
-        if (!subcommand || subcommand === 'help' || subcommand === 'status') {
-            return message.reply({
-                embeds: [buildHelp(client)],
-                allowedMentions: { repliedUser: false }
+        // ,antinuke
+        if (!subcommand) {
+            return message.channel.send({
+                embeds: [buildHelp(client)]
             });
         }
 
-        // ENABLE / DISABLE
-        if (subcommand === 'enable' || subcommand === 'disable') {
+        // ,antinuke enable
+        // ,antinuke disable
+        if (
+            subcommand === 'enable' ||
+            subcommand === 'disable'
+        ) {
             const enabled = subcommand === 'enable';
 
-            await configureAntiNuke(guild.id, { enabled });
+            const settings = await getAntiNukeSettings(guild.id);
 
-            message.channel.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0x57F287)
-                        .setDescription(
-                            `Anti-Nuke protection is now **${enabled ? 'enabled' : 'disabled'}**.`
+            // Protection is already in the requested state.
+            if (settings.enabled === enabled) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.deny,
+                            EMOJIS.deny +
+                            ' antinuke protection is already ' +
+                            (enabled ? 'enabled.' : 'disabled.')
                         )
-                        .setFooter({
-                            text: 'Jurukai Help'
-                        })
+                    ]
+                });
+            }
+
+            await configureAntiNuke(guild.id, {
+                enabled: enabled
+            });
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.approve,
+                        EMOJIS.approve +
+                        ' antinuke protection is now **' +
+                        (enabled ? 'Enabled' : 'Disabled') +
+                        '**.'
+                    )
                 ]
             });
         }
 
-        message.channel.send({
-            content: 'Use `,antinuke enable` or `,antinuke disable`.',
-            allowedMentions: { repliedUser: false }
+        // Invalid subcommand.
+        return message.channel.send({
+            embeds: [
+                createResponse(
+                    COLORS.warning,
+                    EMOJIS.warning +
+                    ' use `,antinuke`, `,antinuke enable`, or `,antinuke disable`.'
+                )
+            ]
         });
     }
 };
