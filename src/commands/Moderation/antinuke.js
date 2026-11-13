@@ -73,25 +73,21 @@ export default {
 
             await configureAntiNuke(guild.id, { enabled });
 
-            return message.reply({
+            message.channel.send({
                 embeds: [
                     new EmbedBuilder()
-                        .setColor(COLOR)
-                        .setAuthor({
-                            name: 'Cayo Help',
-                            iconURL: client.user.displayAvatarURL()
-                        })
+                        .setColor(0x57F287)
                         .setDescription(
                             `Anti-Nuke protection is now **${enabled ? 'enabled' : 'disabled'}**.`
                         )
                         .setFooter({
-                            text: 'Cayo Help'
+                            text: 'Jurukai Help'
                         })
                 ]
             });
         }
 
-        return message.reply({
+        message.channel.send({
             content: 'Use `,antinuke enable` or `,antinuke disable`.',
             allowedMentions: { repliedUser: false }
         });
