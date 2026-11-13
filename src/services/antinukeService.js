@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = {
     protections: {
         channelDelete: true,
         channelCreate: true,
+        channelUpdate: true,
         roleDelete: true,
         roleCreate: true,
         roleUpdate: true,
@@ -37,6 +38,7 @@ const DEFAULT_SETTINGS = {
     thresholds: {
         channelDelete: { limit: 2, interval: 10000 },
         channelCreate: { limit: 5, interval: 10000 },
+        channelUpdate: { limit: 1, interval: 10000 },
         roleDelete: { limit: 2, interval: 10000 },
         roleCreate: { limit: 5, interval: 10000 },
         roleUpdate: { limit: 1, interval: 10000 },
@@ -523,6 +525,7 @@ export async function checkAntiNuke({
         const actionNames = {
             channelDelete: 'Channel Deletion',
             channelCreate: 'Channel Creation',
+            channelUpdate: 'Channel Permission Changes',
             roleDelete: 'Role Deletion',
             roleCreate: 'Role Creation',
             roleUpdate: 'Role Permission Changes',
