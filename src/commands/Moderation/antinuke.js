@@ -14,7 +14,7 @@ function buildHelp(client) {
     return new EmbedBuilder()
         .setColor(COLOR)
         .setAuthor({
-            name: 'Cayo Help',
+            name: 'Jurukai Help',
             iconURL: client.user.displayAvatarURL()
         })
         .setTitle('Command: antinuke')
@@ -22,12 +22,12 @@ function buildHelp(client) {
             'Enable or disable Anti-Nuke protection for your server.',
             '',
             '```',
-            'Syntax: ,antinuke <enable|disable>',
+            'Syntax: ,antinuke',
             'Example: ,antinuke enable',
             '```'
         ].join('\n'))
         .setFooter({
-            text: 'Cayo Help'
+            text: 'Jurukai Help'
         });
 }
 
