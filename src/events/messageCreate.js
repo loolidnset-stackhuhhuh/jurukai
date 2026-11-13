@@ -29,33 +29,46 @@ export default {
 
         if (!command || command.enabled === false) return;
 
-        const permission = await checkCommandPermission(
-            message,
-            command
-        );
+        // Let commands with custom permission handling
+        // perform their own permission checks.
+        if (!command.handlesPermissions) {
+            const permission = await checkCommandPermission(
+                message,
+                command
+            );
 
-        if (!permission.allowed) {
-            return message.reply({
-                content: permission.reason,
-                allowedMentions: { repliedUser: false }
-            });
+            if (!permission.allowed) {
+                return message.reply({
+                    content: permission.reason,
+                    allowedMentions: {
+                        repliedUser: false
+                    }
+                });
+            }
         }
 
         const cooldownTime =
             (command.cooldown ?? botConfig.commands.defaultCooldown) * 1000;
 
         const cooldownKey =
-            `${message.guild.id}:${message.author.id}:${command.name}`;
+            message.guild.id + ':' +
+            message.author.id + ':' +
+            command.name;
 
         const now = Date.now();
         const expiration = cooldowns.get(cooldownKey);
 
         if (expiration && now < expiration) {
-            const remaining = ((expiration - now) / 1000).toFixed(1);
+            const remaining = (
+                (expiration - now) / 1000
+            ).toFixed(1);
 
             return message.reply({
-                content: `Please wait ${remaining}s before using this command again.`,
-                allowedMentions: { repliedUser: false }
+                content: 'Please wait ' + remaining +
+                    's before using this command again.',
+                allowedMentions: {
+                    repliedUser: false
+                }
             });
         }
 
@@ -71,13 +84,15 @@ export default {
             await command.execute(client, message, args);
         } catch (error) {
             console.error(
-                `[ALTARE] Command error (${command.name}):`,
+                '[ALTARE] Command error (' + command.name + '):',
                 error
             );
 
             await message.reply({
                 content: 'An error occurred while executing this command.',
-                allowedMentions: { repliedUser: false }
+                allowedMentions: {
+                    repliedUser: false
+                }
             }).catch(() => {});
         }
     }
