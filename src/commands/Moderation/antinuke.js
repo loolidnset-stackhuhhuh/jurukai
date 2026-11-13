@@ -729,6 +729,68 @@ export default {
             });
         }
 
+                // PUNISHMENT CONFIGURATION
+        if (subcommand === 'punishment') {
+            const settings = await getAntiNukeSettings(guild.id);
+            const punishment = args[1]?.toLowerCase();
+
+            const validPunishments = [
+                'strip',
+                'kick',
+                'ban',
+                'timeout'
+            ];
+
+            if (!punishment) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.help,
+                            '**Anti-Nuke Punishment**\n\n' +
+                            'Current punishment: **' + settings.punishment + '**\n\n' +
+                            'Available: `strip`, `kick`, `ban`, `timeout`.\n' +
+                            'Use `,antinuke punishment <type>` to change it.'
+                        )
+                    ]
+                });
+            }
+
+            if (!validPunishments.includes(punishment)) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning +
+                            ' Invalid punishment. Choose `strip`, `kick`, `ban`, or `timeout`.'
+                        )
+                    ]
+                });
+            }
+
+            if (settings.punishment === punishment) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.deny,
+                            EMOJIS.deny +
+                            ' Anti-Nuke punishment is already set to **' + punishment + '**.'
+                        )
+                    ]
+                });
+            }
+
+            await configureAntiNuke(guild.id, { punishment });
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.approve,
+                        EMOJIS.approve +
+                        ' Anti-Nuke punishment is now set to **' + punishment + '**.'
+                    )
+                ]
+            });
+        }
         // ENABLE / DISABLE
         if (subcommand === 'enable' || subcommand === 'disable') {
             const enabled = subcommand === 'enable';
