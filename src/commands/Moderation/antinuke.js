@@ -3,7 +3,20 @@ import { EmbedBuilder } from 'discord.js';
 
 import {
     configureAntiNuke,
-    getAntiNukeSettings
+    getAntiNukeSettings,
+    addAntiNukeAdmin,
+    removeAntiNukeAdmin,
+    getAntiNukeAdminUsers,
+    isAntiNukeAdmin,
+    addAntiNukeWhitelist,
+    removeAntiNukeWhitelist,
+    getAntiNukeWhitelistUsers,
+    isWhitelisted,
+    addAntiNukeBlacklist,
+    removeAntiNukeBlacklist,
+    getAntiNukeBlacklistUsers,
+    isAntiNukeBlacklisted,
+    stripBlacklistedUser
 } from '../../services/antinukeService.js';
 
 import {
@@ -23,7 +36,6 @@ const EMOJIS = {
     warning: '<:warning:1562130172004540439>'
 };
 
-// Cayo-style Anti-Nuke help embed.
 function buildHelp(client) {
     return new EmbedBuilder()
         .setColor(COLORS.help)
@@ -37,14 +49,28 @@ function buildHelp(client) {
             '```\n' +
             'Syntax: ,antinuke\n' +
             'Example: ,antinuke\n' +
-            '```'
+            '```\n\n' +
+            '**Protection**\n' +
+            '`,antinuke enable`\n' +
+            '`,antinuke disable`\n\n' +
+            '**Admins**\n' +
+            '`,antinuke admin add @user`\n' +
+            '`,antinuke admin remove @user`\n' +
+            '`,antinuke admin list`\n\n' +
+            '**Whitelist**\n' +
+            '`,antinuke whitelist add @user`\n' +
+            '`,antinuke whitelist remove @user`\n' +
+            '`,antinuke whitelist list`\n\n' +
+            '**Blacklist**\n' +
+            '`,antinuke blacklist add @user`\n' +
+            '`,antinuke blacklist remove @user`\n' +
+            '`,antinuke blacklist list`'
         )
         .setFooter({
             text: 'Jurukai Help'
         });
 }
 
-// Simple standalone response embed.
 function createResponse(color, description) {
     return new EmbedBuilder()
         .setColor(color)
@@ -65,18 +91,65 @@ function getRoleMention(guild, roleIds) {
     }).join(' or ');
 }
 
+function getUserId(input) {
+    if (!input) return null;
+
+    const match = input.match(/^<@!?(\d{17,20})>$/);
+
+    if (match) return match[1];
+
+    if (/^\d{17,20}$/.test(input)) {
+        return input;
+    }
+
+    return null;
+}
+
+async function getTargetMember(guild, input) {
+    const userId = getUserId(input);
+
+    if (!userId) return null;
+
+    return guild.members.fetch(userId).catch(() => null);
+}
+
+async function buildUserList(client, userIds) {
+    if (!userIds.length) {
+        return 'No users found.';
+    }
+
+    const lines = await Promise.all(
+        userIds.slice(0, 25).map(async userId => {
+            const user = await client.users.fetch(userId)
+                .catch(() => null);
+
+            return user
+                ? `• ${user.username} (<@${userId}>)`
+                : `• <@${userId}>`;
+        })
+    );
+
+    if (userIds.length > 25) {
+        lines.push(`And ${userIds.length - 25} more...`);
+    }
+
+    return lines.join('\n');
+}
+
 export default {
     name: 'antinuke',
     aliases: ['an'],
     cooldown: 3,
 
-    // Anti-Nuke performs its own permission check.
     handlesPermissions: true,
 
     async execute(client, message, args) {
         const guild = message.guild;
 
         if (!guild) return;
+
+        const userId = message.author.id;
+        const isOwner = guild.ownerId === userId;
 
         let roleIds = [];
 
@@ -102,13 +175,239 @@ export default {
             });
         }
 
-        const isOwner = guild.ownerId === message.author.id;
+        let isAdmin = false;
+        let isUserWhitelisted = false;
+        let isBlacklisted = false;
+
+        try {
+            isAdmin = await isAntiNukeAdmin(guild.id, userId);
+            isUserWhitelisted = await isWhitelisted(guild, userId);
+            isBlacklisted = await isAntiNukeBlacklisted(guild.id, userId);
+        } catch (error) {
+            console.error(
+                '[JURUKAI ANTINUKE] User permission lookup failed:',
+                error
+            );
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        EMOJIS.warning +
+                        ' Anti-Nuke user permissions could not be checked right now.'
+                    )
+                ]
+            });
+        }
+
+        // Blacklisted users are punished before normal permission checks.
+        // The owner, Anti-Nuke admins, and whitelisted users are exempt.
+        if (
+            isBlacklisted &&
+            !isOwner &&
+            !isAdmin &&
+            !isUserWhitelisted
+        ) {
+            const member = message.member ||
+                await guild.members.fetch(userId).catch(() => null);
+
+            const result = await stripBlacklistedUser(member);
+
+            const description = result.success
+                ? `${EMOJIS.warning} You are blacklisted from Anti-Nuke. **${result.removed}** removable role(s) have been stripped.`
+                : `${EMOJIS.warning} You are blacklisted from Anti-Nuke. Role removal could not be completed: ${result.reason}`;
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        description
+                    )
+                ],
+                allowedMentions: {
+                    parse: []
+                }
+            });
+        }
 
         const hasStaffRole = roleIds.some(roleId =>
             message.member?.roles.cache.has(roleId)
         );
 
-        if (!isOwner && !hasStaffRole) {
+        const hasAccess = isOwner || isAdmin || hasStaffRole;
+
+        const subcommand = args[0]?.toLowerCase();
+        const action = args[1]?.toLowerCase();
+
+        // ,antinuke
+        if (!subcommand) {
+            if (!hasAccess) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning +
+                            ' you must have ' +
+                            getRoleMention(guild, roleIds) +
+                            ' perms.'
+                        )
+                    ]
+                });
+            }
+
+            return message.channel.send({
+                embeds: [buildHelp(client)]
+            });
+        }
+
+        // ADMIN MANAGEMENT
+        if (subcommand === 'admin') {
+            // Only the owner and existing Anti-Nuke admins
+            // can manage the Anti-Nuke admin list.
+            if (!isOwner && !isAdmin) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning +
+                            ' only the server owner or an Anti-Nuke admin can manage Anti-Nuke admins.'
+                        )
+                    ]
+                });
+            }
+
+            if (action === 'list') {
+                const admins = await getAntiNukeAdminUsers(guild.id);
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.help,
+                            admins.length
+                                ? '**Anti-Nuke Admins**\n\n' +
+                                  await buildUserList(client, admins)
+                                : EMOJIS.warning +
+                                  ' There are no Anti-Nuke admins assigned.'
+                        )
+                    ]
+                });
+            }
+
+            if (action === 'add' || action === 'remove') {
+                const target = await getTargetMember(
+                    guild,
+                    args[2]
+                );
+
+                if (!target) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' please mention a valid server member.'
+                            )
+                        ]
+                    });
+                }
+
+                if (target.id === guild.ownerId) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' the server owner already has full Anti-Nuke access.'
+                            )
+                        ]
+                    });
+                }
+
+                if (target.id === client.user.id) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' the bot cannot be assigned as an Anti-Nuke admin.'
+                            )
+                        ]
+                    });
+                }
+
+                if (action === 'add') {
+                    const currentAdmins =
+                        await getAntiNukeAdminUsers(guild.id);
+
+                    if (currentAdmins.includes(target.id)) {
+                        return message.channel.send({
+                            embeds: [
+                                createResponse(
+                                    COLORS.deny,
+                                    EMOJIS.deny +
+                                    ` <@${target.id}> is already an Anti-Nuke admin.`
+                                )
+                            ]
+                        });
+                    }
+
+                    await addAntiNukeAdmin(guild.id, target.id);
+
+                    // Admins should not also remain on the blacklist.
+                    await removeAntiNukeBlacklist(guild.id, target.id);
+
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.approve,
+                                EMOJIS.approve +
+                                ` <@${target.id}> is now an **Anti-Nuke admin**.`
+                            )
+                        ]
+                    });
+                }
+
+                const currentAdmins =
+                    await getAntiNukeAdminUsers(guild.id);
+
+                if (!currentAdmins.includes(target.id)) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.deny,
+                                EMOJIS.deny +
+                                ` <@${target.id}> is not an Anti-Nuke admin.`
+                            )
+                        ]
+                    });
+                }
+
+                await removeAntiNukeAdmin(guild.id, target.id);
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.approve,
+                            EMOJIS.approve +
+                            ` <@${target.id}> is no longer an **Anti-Nuke admin**.`
+                        )
+                    ]
+                });
+            }
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        EMOJIS.warning +
+                        ' use `,antinuke admin add @user`, `,antinuke admin remove @user`, or `,antinuke admin list`.'
+                    )
+                ]
+            });
+        }
+
+        // All remaining Anti-Nuke commands require normal access.
+        if (!hasAccess) {
             return message.channel.send({
                 embeds: [
                     createResponse(
@@ -122,26 +421,272 @@ export default {
             });
         }
 
-        const subcommand = args[0]?.toLowerCase();
+        // WHITELIST MANAGEMENT
+        if (subcommand === 'whitelist') {
+            if (action === 'list') {
+                const users = await getAntiNukeWhitelistUsers(guild.id);
 
-        // ,antinuke
-        if (!subcommand) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.help,
+                            users.length
+                                ? '**Anti-Nuke Whitelist**\n\n' +
+                                  await buildUserList(client, users)
+                                : EMOJIS.warning +
+                                  ' The Anti-Nuke whitelist is empty.'
+                        )
+                    ]
+                });
+            }
+
+            if (action === 'add' || action === 'remove') {
+                const target = await getTargetMember(
+                    guild,
+                    args[2]
+                );
+
+                if (!target) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' please mention a valid server member.'
+                            )
+                        ]
+                    });
+                }
+
+                if (target.id === client.user.id) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' the bot cannot be added to the whitelist.'
+                            )
+                        ]
+                    });
+                }
+
+                if (action === 'add') {
+                    const users =
+                        await getAntiNukeWhitelistUsers(guild.id);
+
+                    if (users.includes(target.id)) {
+                        return message.channel.send({
+                            embeds: [
+                                createResponse(
+                                    COLORS.deny,
+                                    EMOJIS.deny +
+                                    ` <@${target.id}> is already whitelisted.`
+                                )
+                            ]
+                        });
+                    }
+
+                    await addAntiNukeWhitelist(guild.id, target.id);
+
+                    // A whitelisted user should not also be blacklisted.
+                    await removeAntiNukeBlacklist(guild.id, target.id);
+
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.approve,
+                                EMOJIS.approve +
+                                ` <@${target.id}> has been added to the **Anti-Nuke whitelist**.`
+                            )
+                        ]
+                    });
+                }
+
+                const users =
+                    await getAntiNukeWhitelistUsers(guild.id);
+
+                if (!users.includes(target.id)) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.deny,
+                                EMOJIS.deny +
+                                ` <@${target.id}> is not whitelisted.`
+                            )
+                        ]
+                    });
+                }
+
+                await removeAntiNukeWhitelist(guild.id, target.id);
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.approve,
+                            EMOJIS.approve +
+                            ` <@${target.id}> has been removed from the **Anti-Nuke whitelist**.`
+                        )
+                    ]
+                });
+            }
+
             return message.channel.send({
-                embeds: [buildHelp(client)]
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        EMOJIS.warning +
+                        ' use `,antinuke whitelist add @user`, `,antinuke whitelist remove @user`, or `,antinuke whitelist list`.'
+                    )
+                ]
             });
         }
 
-        // ,antinuke enable
-        // ,antinuke disable
+        // BLACKLIST MANAGEMENT
+        if (subcommand === 'blacklist') {
+            if (action === 'list') {
+                const users = await getAntiNukeBlacklistUsers(guild.id);
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.help,
+                            users.length
+                                ? '**Anti-Nuke Blacklist**\n\n' +
+                                  await buildUserList(client, users)
+                                : EMOJIS.warning +
+                                  ' The Anti-Nuke blacklist is empty.'
+                        )
+                    ]
+                });
+            }
+
+            if (action === 'add' || action === 'remove') {
+                const target = await getTargetMember(
+                    guild,
+                    args[2]
+                );
+
+                if (!target) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' please mention a valid server member.'
+                            )
+                        ]
+                    });
+                }
+
+                if (
+                    target.id === guild.ownerId ||
+                    target.id === client.user.id
+                ) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.warning,
+                                EMOJIS.warning +
+                                ' this user cannot be added to the Anti-Nuke blacklist.'
+                            )
+                        ]
+                    });
+                }
+
+                if (action === 'add') {
+                    const admins =
+                        await getAntiNukeAdminUsers(guild.id);
+
+                    if (admins.includes(target.id)) {
+                        return message.channel.send({
+                            embeds: [
+                                createResponse(
+                                    COLORS.warning,
+                                    EMOJIS.warning +
+                                    ' Anti-Nuke admins cannot be blacklisted.'
+                                )
+                            ]
+                        });
+                    }
+
+                    const users =
+                        await getAntiNukeBlacklistUsers(guild.id);
+
+                    if (users.includes(target.id)) {
+                        return message.channel.send({
+                            embeds: [
+                                createResponse(
+                                    COLORS.deny,
+                                    EMOJIS.deny +
+                                    ` <@${target.id}> is already blacklisted.`
+                                )
+                            ]
+                        });
+                    }
+
+                    await addAntiNukeBlacklist(guild.id, target.id);
+
+                    // A blacklisted user should not also remain whitelisted.
+                    await removeAntiNukeWhitelist(guild.id, target.id);
+
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.approve,
+                                EMOJIS.approve +
+                                ` <@${target.id}> has been added to the **Anti-Nuke blacklist**.`
+                            )
+                        ]
+                    });
+                }
+
+                const users =
+                    await getAntiNukeBlacklistUsers(guild.id);
+
+                if (!users.includes(target.id)) {
+                    return message.channel.send({
+                        embeds: [
+                            createResponse(
+                                COLORS.deny,
+                                EMOJIS.deny +
+                                ` <@${target.id}> is not blacklisted.`
+                            )
+                        ]
+                    });
+                }
+
+                await removeAntiNukeBlacklist(guild.id, target.id);
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.approve,
+                            EMOJIS.approve +
+                            ` <@${target.id}> has been removed from the **Anti-Nuke blacklist**.`
+                        )
+                    ]
+                });
+            }
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.warning,
+                        EMOJIS.warning +
+                        ' use `,antinuke blacklist add @user`, `,antinuke blacklist remove @user`, or `,antinuke blacklist list`.'
+                    )
+                ]
+            });
+        }
+
+        // ENABLE / DISABLE
         if (
             subcommand === 'enable' ||
             subcommand === 'disable'
         ) {
             const enabled = subcommand === 'enable';
-
             const settings = await getAntiNukeSettings(guild.id);
 
-            // Protection is already in the requested state.
             if (settings.enabled === enabled) {
                 return message.channel.send({
                     embeds: [
@@ -172,13 +717,12 @@ export default {
             });
         }
 
-        // Invalid subcommand.
         return message.channel.send({
             embeds: [
                 createResponse(
                     COLORS.warning,
                     EMOJIS.warning +
-                    ' use `,antinuke`, `,antinuke enable`, or `,antinuke disable`.'
+                    ' use `,antinuke`, `,antinuke enable`, `,antinuke disable`, `,antinuke admin`, `,antinuke whitelist`, or `,antinuke blacklist`.'
                 )
             ]
         });
