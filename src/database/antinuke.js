@@ -21,6 +21,20 @@ export async function initializeAntiNukeDatabase() {
             added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (guild_id, user_id)
         );
+
+        CREATE TABLE IF NOT EXISTS antinuke_admins (
+            guild_id VARCHAR(20) NOT NULL,
+            user_id VARCHAR(20) NOT NULL,
+            added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (guild_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS antinuke_blacklist (
+            guild_id VARCHAR(20) NOT NULL,
+            user_id VARCHAR(20) NOT NULL,
+            added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (guild_id, user_id)
+        );
     `);
 
     console.log('[ALTARE] Anti-Nuke database initialized.');
@@ -69,6 +83,8 @@ export async function saveAntiNukeData(guildId, settings) {
     ]);
 }
 
+// WHITELIST
+
 export async function getAntiNukeWhitelist(guildId) {
     const db = getDatabase();
 
@@ -101,4 +117,76 @@ export async function removeAntiNukeWhitelist(guildId, userId) {
     );
 
     return getAntiNukeWhitelist(guildId);
+}
+
+// ANTINUKE ADMINS
+
+export async function getAntiNukeAdmins(guildId) {
+    const db = getDatabase();
+
+    const result = await db.query(
+        'SELECT user_id FROM antinuke_admins WHERE guild_id = $1',
+        [guildId]
+    );
+
+    return result.rows.map(row => row.user_id);
+}
+
+export async function addAntiNukeAdmin(guildId, userId) {
+    const db = getDatabase();
+
+    await db.query(`
+        INSERT INTO antinuke_admins (guild_id, user_id)
+        VALUES ($1, $2)
+        ON CONFLICT (guild_id, user_id) DO NOTHING
+    `, [guildId, userId]);
+
+    return getAntiNukeAdmins(guildId);
+}
+
+export async function removeAntiNukeAdmin(guildId, userId) {
+    const db = getDatabase();
+
+    await db.query(
+        'DELETE FROM antinuke_admins WHERE guild_id = $1 AND user_id = $2',
+        [guildId, userId]
+    );
+
+    return getAntiNukeAdmins(guildId);
+}
+
+// ANTINUKE BLACKLIST
+
+export async function getAntiNukeBlacklist(guildId) {
+    const db = getDatabase();
+
+    const result = await db.query(
+        'SELECT user_id FROM antinuke_blacklist WHERE guild_id = $1',
+        [guildId]
+    );
+
+    return result.rows.map(row => row.user_id);
+}
+
+export async function addAntiNukeBlacklist(guildId, userId) {
+    const db = getDatabase();
+
+    await db.query(`
+        INSERT INTO antinuke_blacklist (guild_id, user_id)
+        VALUES ($1, $2)
+        ON CONFLICT (guild_id, user_id) DO NOTHING
+    `, [guildId, userId]);
+
+    return getAntiNukeBlacklist(guildId);
+}
+
+export async function removeAntiNukeBlacklist(guildId, userId) {
+    const db = getDatabase();
+
+    await db.query(
+        'DELETE FROM antinuke_blacklist WHERE guild_id = $1 AND user_id = $2',
+        [guildId, userId]
+    );
+
+    return getAntiNukeBlacklist(guildId);
 }
