@@ -96,11 +96,11 @@ function getRoleMention(guild, roleIds) {
 function getUserId(input) {
     if (!input) return null;
 
-    const match = input.match(/^<@!?(\\d{17,20})>$/);
+    const match = input.match(/^<@!?(\d{17,20})>$/);
 
     if (match) return match[1];
 
-    if (/^\\d{17,20}$/.test(input)) {
+    if (/^\d{17,20}$/.test(input)) {
         return input;
     }
 
@@ -451,7 +451,7 @@ export default {
                 });
             }
 
-            const channelMatch = args[1]?.match(/^<#(\\d{17,20})>$/);
+            const channelMatch = args[1]?.match(/^<#(\d{17,20})>$/);
             const channelId = channelMatch?.[1];
 
             if (!channelId) {
