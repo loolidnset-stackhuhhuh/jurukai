@@ -59,6 +59,9 @@ function buildHelp(client) {
             '`,antinuke disable`\n' +
             '`,antinuke protection list`\n' +
             '`,antinuke protection <name> on/off`\n\n' +
+            '**Thresholds**\n' +
+            '`,antinuke threshold list`\n' +
+            '`,antinuke threshold <name> <amount> <seconds>`\n\n' +
             '**Logs**\n' +
             '`,antinuke log #channel`\n' +
             '`,antinuke log disable`\n\n' +
@@ -110,6 +113,7 @@ async function buildUserList(client, userIds) {
     const lines = await Promise.all(
         userIds.slice(0, 25).map(async userId => {
             const user = await client.users.fetch(userId).catch(() => null);
+
             return user
                 ? `• ${user.username} (<@${userId}>)`
                 : `• <@${userId}>`;
@@ -174,6 +178,7 @@ export default {
             });
         }
 
+        // BLACKLIST ENFORCEMENT
         if (isBlacklisted && !isOwner && !isAdmin && !isUserWhitelisted) {
             const member = message.member ||
                 await guild.members.fetch(userId).catch(() => null);
@@ -312,7 +317,7 @@ export default {
             });
         }
 
-        // ALL REMAINING COMMANDS REQUIRE NORMAL ACCESS
+        // ALL OTHER COMMANDS REQUIRE NORMAL ACCESS
         if (!hasAccess) {
             return message.channel.send({
                 embeds: [
@@ -394,6 +399,94 @@ export default {
                     createResponse(
                         COLORS.approve,
                         EMOJIS.approve + ` **${protection}** protection is now **${enabled ? 'Enabled' : 'Disabled'}**.`
+                    )
+                ]
+            });
+        }
+
+        // THRESHOLD CONFIGURATION
+        if (subcommand === 'threshold') {
+            const settings = await getAntiNukeSettings(guild.id);
+
+            if (action === 'list') {
+                const lines = Object.entries(settings.thresholds).map(
+                    ([name, threshold]) =>
+                        `**${name}** — ${threshold.limit} action(s) / ${threshold.interval / 1000} second(s)`
+                );
+
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.help,
+                            '**Anti-Nuke Thresholds**\n\n' + lines.join('\n')
+                        )
+                    ]
+                });
+            }
+
+            const protection = args[1]?.toLowerCase();
+            const limit = Number(args[2]);
+            const seconds = Number(args[3]);
+
+            if (!Object.hasOwn(settings.thresholds, protection)) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning + ' Invalid protection. Use `,antinuke threshold list` to see available protections.'
+                        )
+                    ]
+                });
+            }
+
+            if (
+                !Number.isInteger(limit) ||
+                limit < 1 ||
+                limit > 100 ||
+                !Number.isInteger(seconds) ||
+                seconds < 1 ||
+                seconds > 300
+            ) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.warning,
+                            EMOJIS.warning + ' enter an amount from **1–100** and a time from **1–300 seconds**. Example: `,antinuke threshold channelDelete 3 10`.'
+                        )
+                    ]
+                });
+            }
+
+            const current = settings.thresholds[protection];
+
+            if (
+                current.limit === limit &&
+                current.interval === seconds * 1000
+            ) {
+                return message.channel.send({
+                    embeds: [
+                        createResponse(
+                            COLORS.deny,
+                            EMOJIS.deny + ` **${protection}** already uses ${limit} action(s) within ${seconds} second(s).`
+                        )
+                    ]
+                });
+            }
+
+            await configureAntiNuke(guild.id, {
+                thresholds: {
+                    [protection]: {
+                        limit,
+                        interval: seconds * 1000
+                    }
+                }
+            });
+
+            return message.channel.send({
+                embeds: [
+                    createResponse(
+                        COLORS.approve,
+                        EMOJIS.approve + ` **${protection}** threshold is now **${limit} action(s) within ${seconds} second(s)**.`
                     )
                 ]
             });
@@ -666,7 +759,7 @@ export default {
             embeds: [
                 createResponse(
                     COLORS.warning,
-                    EMOJIS.warning + ' use `,antinuke`, `,antinuke enable`, `,antinuke disable`, `,antinuke protection`, `,antinuke log`, `,antinuke admin`, `,antinuke whitelist`, or `,antinuke blacklist`.'
+                    EMOJIS.warning + ' use `,antinuke`, `,antinuke enable`, `,antinuke disable`, `,antinuke protection`, `,antinuke threshold`, `,antinuke log`, `,antinuke admin`, `,antinuke whitelist`, or `,antinuke blacklist`.'
                 )
             ]
         });
